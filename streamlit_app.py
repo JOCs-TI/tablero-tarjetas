@@ -544,7 +544,8 @@ with tab_resumen:
                             use_container_width=True)
 
 with tab_detalle:
-    st.caption("Todos los movimientos individuales, filtrables por año, concepto y tarjeta.")
+    st.caption("Todos los movimientos individuales, filtrables por año, concepto, tarjeta, "
+              "centro de costo, departamento y oficina.")
 
     colf3, colf4, colf5 = st.columns(3)
     with colf3:
@@ -556,11 +557,31 @@ with tab_detalle:
     with colf5:
         tarjeta_det = st.selectbox("Tarjeta", ["Ambos", "JSC", "JSB"], key="tarjeta_detalle")
 
+    colf6, colf7, colf8 = st.columns(3)
+    with colf6:
+        cc_todos = sorted(mov_df["cc"].dropna().unique().tolist())
+        cc_det = st.multiselect("Centro de Costo", cc_todos, default=[], key="cc_detalle",
+                                placeholder="Todos los centros de costo")
+    with colf7:
+        deptos_todos = sorted(mov_df["departamento"].dropna().unique().tolist())
+        deptos_det = st.multiselect("Departamento", deptos_todos, default=[], key="deptos_detalle",
+                                    placeholder="Todos los departamentos")
+    with colf8:
+        oficinas_todas = sorted(mov_df["oficina"].dropna().unique().tolist())
+        oficinas_det = st.multiselect("Oficina", oficinas_todas, default=[], key="oficinas_detalle",
+                                      placeholder="Todas las oficinas")
+
     detalle = mov_df[mov_df["anio"].isin(anios_det)] if anios_det else mov_df.iloc[0:0]
     if conceptos_det:
         detalle = detalle[detalle["producto"].isin(conceptos_det)]
     if tarjeta_det != "Ambos":
         detalle = detalle[detalle["persona"] == tarjeta_det]
+    if cc_det:
+        detalle = detalle[detalle["cc"].isin(cc_det)]
+    if deptos_det:
+        detalle = detalle[detalle["departamento"].isin(deptos_det)]
+    if oficinas_det:
+        detalle = detalle[detalle["oficina"].isin(oficinas_det)]
 
     st.caption(f"{len(detalle):,} movimientos · {fmt(detalle['monto'].sum())} en total")
     tabla_detalle = detalle.sort_values("monto", ascending=False).reset_index(drop=True)
