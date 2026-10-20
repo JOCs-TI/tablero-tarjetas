@@ -539,3 +539,36 @@ else:
     else:
         st.altair_chart(treemap_generico(por_prod_of, titulo_campo="Producto", height=420, top_n=10, min_pct=0.03),
                         use_container_width=True)
+
+st.divider()
+st.subheader("Detalle de Movimientos")
+st.caption("Todos los movimientos individuales, filtrables por año, concepto y tarjeta.")
+
+colf3, colf4, colf5 = st.columns(3)
+with colf3:
+    anios_det = st.multiselect("Año", [2024, 2025, 2026], default=[2024, 2025, 2026], key="anios_detalle")
+with colf4:
+    conceptos_todos = sorted(mov_df["producto"].dropna().unique().tolist())
+    conceptos_det = st.multiselect("Concepto", conceptos_todos, default=[], key="conceptos_detalle",
+                                   placeholder="Todos los conceptos")
+with colf5:
+    tarjeta_det = st.selectbox("Tarjeta", ["Ambos", "JSC", "JSB"], key="tarjeta_detalle")
+
+detalle = mov_df[mov_df["anio"].isin(anios_det)] if anios_det else mov_df.iloc[0:0]
+if conceptos_det:
+    detalle = detalle[detalle["producto"].isin(conceptos_det)]
+if tarjeta_det != "Ambos":
+    detalle = detalle[detalle["persona"] == tarjeta_det]
+
+st.caption(f"{len(detalle):,} movimientos · {fmt(detalle['monto'].sum())} en total")
+tabla_detalle = detalle.sort_values("monto", ascending=False).reset_index(drop=True)
+tabla_detalle = pd.DataFrame({
+    "Año": tabla_detalle["anio"],
+    "Tarjeta": tabla_detalle["persona"],
+    "Concepto": tabla_detalle["producto"],
+    "Centro de Costo": tabla_detalle["cc"].fillna("—"),
+    "Departamento": tabla_detalle["departamento"],
+    "Oficina": tabla_detalle["oficina"],
+    "Monto": tabla_detalle["monto"].map(fmt),
+})
+st.dataframe(tabla_detalle, use_container_width=True, hide_index=True, height=480)
