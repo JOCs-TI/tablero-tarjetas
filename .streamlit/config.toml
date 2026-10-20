@@ -1,0 +1,14 @@
+# Tema de marca Ancora (oscuro): navy como base, teal primario, texto off-white.
+[theme]
+base = "dark"
+primaryColor = "#1d7b8a"                 # teal (marca)
+backgroundColor = "#0f2137"              # navy profundo (base del lienzo)
+secondaryBackgroundColor = "#13375c"     # navy de marca (sidebar, tarjetas)
+textColor = "#F6F6F6"                    # off-white (marca)
+font = "Montserrat, sans-serif"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
