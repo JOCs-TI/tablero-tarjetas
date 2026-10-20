@@ -389,8 +389,9 @@ if dff.empty:
 TOT = dff["monto"].sum()
 N_MOV = len(dff)
 
-# Todo el tablero vive en una sola página (sin pestañas) -- a pedido del
-# usuario, "solo vamos a usar una pestaña".
+# Resumen y Detalle de Movimientos van en pestañas (st.tabs) dentro de esta
+# misma página -- el Detalle es una tabla de miles de filas y el usuario pidió
+# que no viviera pegada al resumen inicial.
 st.title("Tarjetas de Crédito")
 st.caption(f"{etiqueta_personas} · {', '.join(str(a) for a in sorted(anios_sel))}")
 
@@ -399,176 +400,177 @@ c1.metric("Total gastado acumulado a septiembre del 2026", fmt_m(TOT))
 c2.metric("Movimientos", f"{N_MOV:,}")
 c3.metric("Centros de costo distintos", f"{dff['cc'].nunique():,}")
 
-st.divider()
-st.subheader("Gasto por año" + (" y persona" if persona_sel == "Ambos" else ""))
-if persona_sel == "Ambos":
-    st.altair_chart(barras_anuales(dff, "persona"), use_container_width=True)
-else:
-    por_anio = dff.groupby("anio")["monto"].sum()
-    st.altair_chart(barra_h(por_anio.sort_index(ascending=False), C_JSC if persona_sel == "JSC" else C_JSB,
-                            height=220), use_container_width=True)
+tab_resumen, tab_detalle = st.tabs(["Resumen", "Detalle de Movimientos"])
 
-resumen = dff.groupby("anio")["monto"].sum().sort_index()
-if len(resumen) > 1:
-    st.subheader("Variación año contra año")
-    cols = st.columns(len(resumen))
-    anios_ordenados = resumen.index.tolist()
-    for i, anio in enumerate(anios_ordenados):
-        delta = None
-        if i > 0 and resumen.iloc[i - 1]:
-            delta = pct((resumen.iloc[i] - resumen.iloc[i - 1]) / resumen.iloc[i - 1])
-        # 2026 viene incompleto (datos acumulados solo a septiembre) -- se
-        # etiqueta distinto para no dar a entender que es el año completo.
-        etiqueta_anio = "Ene-Sep 2026" if anio == 2026 else str(anio)
-        cols[i].metric(etiqueta_anio, fmt_m(resumen.iloc[i]), delta=delta)
+with tab_resumen:
+    st.subheader("Gasto por año" + (" y persona" if persona_sel == "Ambos" else ""))
+    if persona_sel == "Ambos":
+        st.altair_chart(barras_anuales(dff, "persona"), use_container_width=True)
+    else:
+        por_anio = dff.groupby("anio")["monto"].sum()
+        st.altair_chart(barra_h(por_anio.sort_index(ascending=False), C_JSC if persona_sel == "JSC" else C_JSB,
+                                height=220), use_container_width=True)
 
-st.divider()
-st.subheader("Resumen Consolidado por Producto")
-colf1, colf2 = st.columns(2)
-with colf1:
-    anio_tabla = st.selectbox("Año", [2024, 2025, 2026], index=2, key="anio_tabla_prod")
-with colf2:
-    tarjeta_tabla = st.selectbox("Tarjeta", ["Ambos", "JSC", "JSB"], key="tarjeta_tabla_prod")
+    resumen = dff.groupby("anio")["monto"].sum().sort_index()
+    if len(resumen) > 1:
+        st.subheader("Variación año contra año")
+        cols = st.columns(len(resumen))
+        anios_ordenados = resumen.index.tolist()
+        for i, anio in enumerate(anios_ordenados):
+            delta = None
+            if i > 0 and resumen.iloc[i - 1]:
+                delta = pct((resumen.iloc[i] - resumen.iloc[i - 1]) / resumen.iloc[i - 1])
+            # 2026 viene incompleto (datos acumulados solo a septiembre) -- se
+            # etiqueta distinto para no dar a entender que es el año completo.
+            etiqueta_anio = "Ene-Sep 2026" if anio == 2026 else str(anio)
+            cols[i].metric(etiqueta_anio, fmt_m(resumen.iloc[i]), delta=delta)
 
-base_tabla = mov_df[mov_df["anio"] == anio_tabla]
-if tarjeta_tabla != "Ambos":
-    base_tabla = base_tabla[base_tabla["persona"] == tarjeta_tabla]
+    st.divider()
+    st.subheader("Resumen Consolidado por Producto")
+    colf1, colf2 = st.columns(2)
+    with colf1:
+        anio_tabla = st.selectbox("Año", [2024, 2025, 2026], index=2, key="anio_tabla_prod")
+    with colf2:
+        tarjeta_tabla = st.selectbox("Tarjeta", ["Ambos", "JSC", "JSB"], key="tarjeta_tabla_prod")
 
-por_prod_tabla = base_tabla.groupby("producto")["monto"].sum().sort_values(ascending=False)
-if por_prod_tabla.empty:
-    st.info("Sin movimientos para ese año/tarjeta.")
-else:
-    tot_tabla = por_prod_tabla.sum() or 1.0
-    # El 80/20 real se lee en el % ACUMULADO (no en el % individual de cada
-    # fila): baja por la lista ya ordenada de mayor a menor hasta juntar el
-    # 80% del gasto total -- esos productos se quedan uno por uno; todo lo
-    # que cae DESPUES de ese corte (la cola larga del 20% restante) se
-    # consolida en una sola fila "Otros", a pedido del usuario.
-    acumulado = por_prod_tabla.cumsum() / tot_tabla
-    es_80 = acumulado <= 0.8
-    principales = por_prod_tabla[es_80]
-    otros_monto = float(por_prod_tabla[~es_80].sum())
+    base_tabla = mov_df[mov_df["anio"] == anio_tabla]
+    if tarjeta_tabla != "Ambos":
+        base_tabla = base_tabla[base_tabla["persona"] == tarjeta_tabla]
 
-    filas = principales.reset_index()
-    filas.columns = ["Producto", "Total"]
-    filas["pct_acum"] = (principales.cumsum() / tot_tabla).values
-    if otros_monto > 0:
-        filas = pd.concat([filas, pd.DataFrame(
-            [{"Producto": "Otros", "Total": otros_monto, "pct_acum": 1.0}])], ignore_index=True)
+    por_prod_tabla = base_tabla.groupby("producto")["monto"].sum().sort_values(ascending=False)
+    if por_prod_tabla.empty:
+        st.info("Sin movimientos para ese año/tarjeta.")
+    else:
+        tot_tabla = por_prod_tabla.sum() or 1.0
+        # El 80/20 real se lee en el % ACUMULADO (no en el % individual de cada
+        # fila): baja por la lista ya ordenada de mayor a menor hasta juntar el
+        # 80% del gasto total -- esos productos se quedan uno por uno; todo lo
+        # que cae DESPUES de ese corte (la cola larga del 20% restante) se
+        # consolida en una sola fila "Otros", a pedido del usuario.
+        acumulado = por_prod_tabla.cumsum() / tot_tabla
+        es_80 = acumulado <= 0.8
+        principales = por_prod_tabla[es_80]
+        otros_monto = float(por_prod_tabla[~es_80].sum())
 
-    filas["% del total"] = (filas["Total"] / tot_tabla).map(pct)
-    filas["Grupo"] = ["80%"] * len(principales) + (["20%"] if otros_monto > 0 else [])
-    filas["Total"] = filas["Total"].map(fmt)
-    filas = filas.drop(columns=["pct_acum"])
+        filas = principales.reset_index()
+        filas.columns = ["Producto", "Total"]
+        filas["pct_acum"] = (principales.cumsum() / tot_tabla).values
+        if otros_monto > 0:
+            filas = pd.concat([filas, pd.DataFrame(
+                [{"Producto": "Otros", "Total": otros_monto, "pct_acum": 1.0}])], ignore_index=True)
 
-    fila_total = pd.DataFrame([{"Producto": "TOTAL", "Total": fmt(tot_tabla), "% del total": "+100.0%",
-                               "Grupo": "—"}])
-    tabla_resumen = pd.concat([filas, fila_total], ignore_index=True)
-    st.dataframe(tabla_resumen, use_container_width=True, hide_index=True,
-                height=min(38 * len(tabla_resumen) + 38, 600))
+        filas["% del total"] = (filas["Total"] / tot_tabla).map(pct)
+        filas["Grupo"] = ["80%"] * len(principales) + (["20%"] if otros_monto > 0 else [])
+        filas["Total"] = filas["Total"].map(fmt)
+        filas = filas.drop(columns=["pct_acum"])
 
-st.divider()
-st.subheader("Gasto por Centro de Costo")
-por_cc = dff.groupby(["cc", "departamento"])["monto"].sum().sort_values(ascending=False)
-etiquetas_cc = pd.Series(
-    por_cc.values,
-    index=[f"{cc}  ·  {depto}" for cc, depto in por_cc.index],
-)
-st.altair_chart(barra_h(etiquetas_cc, C_JSC, height=max(300, 26 * min(10, len(etiquetas_cc))), top_n=10),
-                use_container_width=True)
-tabla_cc = pd.DataFrame({
-    "Centro de Costo": [cc for cc, _ in por_cc.index],
-    "Departamento": [d for _, d in por_cc.index],
-    "Gasto": por_cc.values,
-    "% del total": por_cc.values / (TOT or 1),
-})
-tabla_cc["Gasto"] = tabla_cc["Gasto"].map(fmt)
-tabla_cc["% del total"] = tabla_cc["% del total"].map(pct)
-st.dataframe(tabla_cc, use_container_width=True, hide_index=True)
+        fila_total = pd.DataFrame([{"Producto": "TOTAL", "Total": fmt(tot_tabla), "% del total": "+100.0%",
+                                   "Grupo": "—"}])
+        tabla_resumen = pd.concat([filas, fila_total], ignore_index=True)
+        st.dataframe(tabla_resumen, use_container_width=True, hide_index=True,
+                    height=min(38 * len(tabla_resumen) + 38, 600))
 
-st.divider()
-st.subheader("Gasto por Oficina")
-
-if "oficina_drill" not in st.session_state:
-    st.session_state["oficina_drill"] = None
-
-if st.session_state["oficina_drill"] is None:
-    st.caption("Los movimientos sin oficina especificada en el origen se asignan a CDMX. "
-              "Da clic en una oficina del mapa para ver su desglose por producto.")
-    por_oficina = dff.groupby("oficina")["monto"].sum().sort_values(ascending=False)
-    evento_of = st.altair_chart(
-        treemap_generico(por_oficina, titulo_campo="Oficina", height=420, top_n=10, click_param="click_oficina"),
-        use_container_width=True, on_select="rerun", key="treemap_oficina",
+    st.divider()
+    st.subheader("Gasto por Centro de Costo")
+    por_cc = dff.groupby(["cc", "departamento"])["monto"].sum().sort_values(ascending=False)
+    etiquetas_cc = pd.Series(
+        por_cc.values,
+        index=[f"{cc}  ·  {depto}" for cc, depto in por_cc.index],
     )
-    tabla_of = por_oficina.reset_index()
-    tabla_of.columns = ["Oficina", "Gasto"]
-    tabla_of["% del total"] = (tabla_of["Gasto"] / (TOT or 1)).map(pct)
-    tabla_of["Gasto"] = tabla_of["Gasto"].map(fmt)
-    st.dataframe(tabla_of, use_container_width=True, hide_index=True)
+    st.altair_chart(barra_h(etiquetas_cc, C_JSC, height=max(300, 26 * min(10, len(etiquetas_cc))), top_n=10),
+                    use_container_width=True)
+    tabla_cc = pd.DataFrame({
+        "Centro de Costo": [cc for cc, _ in por_cc.index],
+        "Departamento": [d for _, d in por_cc.index],
+        "Gasto": por_cc.values,
+        "% del total": por_cc.values / (TOT or 1),
+    })
+    tabla_cc["Gasto"] = tabla_cc["Gasto"].map(fmt)
+    tabla_cc["% del total"] = tabla_cc["% del total"].map(pct)
+    st.dataframe(tabla_cc, use_container_width=True, hide_index=True)
 
-    puntos_of = (evento_of.selection.get("click_oficina") or []) if evento_of else []
-    oficina_click = puntos_of[0].get("categoria") if puntos_of else None
-    if oficina_click == "Otros":
-        st.session_state["oficina_drill"] = "__OTROS__"
-        st.rerun()
-    elif oficina_click:
-        st.session_state["oficina_drill"] = oficina_click
-        st.rerun()
-elif st.session_state["oficina_drill"] == "__OTROS__":
-    if st.button("← Regresar a oficinas"):
+    st.divider()
+    st.subheader("Gasto por Oficina")
+
+    if "oficina_drill" not in st.session_state:
         st.session_state["oficina_drill"] = None
-        st.rerun()
-    st.caption("Oficinas agrupadas en \"Otros\" (fuera del top 10).")
-    por_oficina = dff.groupby("oficina")["monto"].sum().sort_values(ascending=False)
-    cola_oficinas = por_oficina.iloc[10:]
-    if cola_oficinas.empty:
-        st.info("No hay oficinas adicionales.")
+
+    if st.session_state["oficina_drill"] is None:
+        st.caption("Los movimientos sin oficina especificada en el origen se asignan a CDMX. "
+                  "Da clic en una oficina del mapa para ver su desglose por producto.")
+        por_oficina = dff.groupby("oficina")["monto"].sum().sort_values(ascending=False)
+        evento_of = st.altair_chart(
+            treemap_generico(por_oficina, titulo_campo="Oficina", height=420, top_n=10, click_param="click_oficina"),
+            use_container_width=True, on_select="rerun", key="treemap_oficina",
+        )
+        tabla_of = por_oficina.reset_index()
+        tabla_of.columns = ["Oficina", "Gasto"]
+        tabla_of["% del total"] = (tabla_of["Gasto"] / (TOT or 1)).map(pct)
+        tabla_of["Gasto"] = tabla_of["Gasto"].map(fmt)
+        st.dataframe(tabla_of, use_container_width=True, hide_index=True)
+
+        puntos_of = (evento_of.selection.get("click_oficina") or []) if evento_of else []
+        oficina_click = puntos_of[0].get("categoria") if puntos_of else None
+        if oficina_click == "Otros":
+            st.session_state["oficina_drill"] = "__OTROS__"
+            st.rerun()
+        elif oficina_click:
+            st.session_state["oficina_drill"] = oficina_click
+            st.rerun()
+    elif st.session_state["oficina_drill"] == "__OTROS__":
+        if st.button("← Regresar a oficinas"):
+            st.session_state["oficina_drill"] = None
+            st.rerun()
+        st.caption("Oficinas agrupadas en \"Otros\" (fuera del top 10).")
+        por_oficina = dff.groupby("oficina")["monto"].sum().sort_values(ascending=False)
+        cola_oficinas = por_oficina.iloc[10:]
+        if cola_oficinas.empty:
+            st.info("No hay oficinas adicionales.")
+        else:
+            st.altair_chart(treemap_generico(cola_oficinas, titulo_campo="Oficina", height=420, top_n=len(cola_oficinas)),
+                            use_container_width=True)
     else:
-        st.altair_chart(treemap_generico(cola_oficinas, titulo_campo="Oficina", height=420, top_n=len(cola_oficinas)),
-                        use_container_width=True)
-else:
-    oficina_sel = st.session_state["oficina_drill"]
-    if st.button("← Regresar a oficinas"):
-        st.session_state["oficina_drill"] = None
-        st.rerun()
-    st.caption(f"Desglose de **{oficina_sel}** por producto.")
-    base_of = dff[dff["oficina"] == oficina_sel]
-    por_prod_of = base_of.groupby("producto")["monto"].sum().sort_values(ascending=False)
-    if por_prod_of.empty:
-        st.info("Sin movimientos para esta oficina con los filtros actuales.")
-    else:
-        st.altair_chart(treemap_generico(por_prod_of, titulo_campo="Producto", height=420, top_n=10, min_pct=0.03),
-                        use_container_width=True)
+        oficina_sel = st.session_state["oficina_drill"]
+        if st.button("← Regresar a oficinas"):
+            st.session_state["oficina_drill"] = None
+            st.rerun()
+        st.caption(f"Desglose de **{oficina_sel}** por producto.")
+        base_of = dff[dff["oficina"] == oficina_sel]
+        por_prod_of = base_of.groupby("producto")["monto"].sum().sort_values(ascending=False)
+        if por_prod_of.empty:
+            st.info("Sin movimientos para esta oficina con los filtros actuales.")
+        else:
+            st.altair_chart(treemap_generico(por_prod_of, titulo_campo="Producto", height=420, top_n=10, min_pct=0.03),
+                            use_container_width=True)
 
-st.divider()
-st.subheader("Detalle de Movimientos")
-st.caption("Todos los movimientos individuales, filtrables por año, concepto y tarjeta.")
+with tab_detalle:
+    st.caption("Todos los movimientos individuales, filtrables por año, concepto y tarjeta.")
 
-colf3, colf4, colf5 = st.columns(3)
-with colf3:
-    anios_det = st.multiselect("Año", [2024, 2025, 2026], default=[2024, 2025, 2026], key="anios_detalle")
-with colf4:
-    conceptos_todos = sorted(mov_df["producto"].dropna().unique().tolist())
-    conceptos_det = st.multiselect("Concepto", conceptos_todos, default=[], key="conceptos_detalle",
-                                   placeholder="Todos los conceptos")
-with colf5:
-    tarjeta_det = st.selectbox("Tarjeta", ["Ambos", "JSC", "JSB"], key="tarjeta_detalle")
+    colf3, colf4, colf5 = st.columns(3)
+    with colf3:
+        anios_det = st.multiselect("Año", [2024, 2025, 2026], default=[2024, 2025, 2026], key="anios_detalle")
+    with colf4:
+        conceptos_todos = sorted(mov_df["producto"].dropna().unique().tolist())
+        conceptos_det = st.multiselect("Concepto", conceptos_todos, default=[], key="conceptos_detalle",
+                                       placeholder="Todos los conceptos")
+    with colf5:
+        tarjeta_det = st.selectbox("Tarjeta", ["Ambos", "JSC", "JSB"], key="tarjeta_detalle")
 
-detalle = mov_df[mov_df["anio"].isin(anios_det)] if anios_det else mov_df.iloc[0:0]
-if conceptos_det:
-    detalle = detalle[detalle["producto"].isin(conceptos_det)]
-if tarjeta_det != "Ambos":
-    detalle = detalle[detalle["persona"] == tarjeta_det]
+    detalle = mov_df[mov_df["anio"].isin(anios_det)] if anios_det else mov_df.iloc[0:0]
+    if conceptos_det:
+        detalle = detalle[detalle["producto"].isin(conceptos_det)]
+    if tarjeta_det != "Ambos":
+        detalle = detalle[detalle["persona"] == tarjeta_det]
 
-st.caption(f"{len(detalle):,} movimientos · {fmt(detalle['monto'].sum())} en total")
-tabla_detalle = detalle.sort_values("monto", ascending=False).reset_index(drop=True)
-tabla_detalle = pd.DataFrame({
-    "Año": tabla_detalle["anio"],
-    "Tarjeta": tabla_detalle["persona"],
-    "Concepto": tabla_detalle["producto"],
-    "Centro de Costo": tabla_detalle["cc"].fillna("—"),
-    "Departamento": tabla_detalle["departamento"],
-    "Oficina": tabla_detalle["oficina"],
-    "Monto": tabla_detalle["monto"].map(fmt),
-})
-st.dataframe(tabla_detalle, use_container_width=True, hide_index=True, height=480)
+    st.caption(f"{len(detalle):,} movimientos · {fmt(detalle['monto'].sum())} en total")
+    tabla_detalle = detalle.sort_values("monto", ascending=False).reset_index(drop=True)
+    tabla_detalle = pd.DataFrame({
+        "Año": tabla_detalle["anio"],
+        "Tarjeta": tabla_detalle["persona"],
+        "Concepto": tabla_detalle["producto"],
+        "Centro de Costo": tabla_detalle["cc"].fillna("—"),
+        "Departamento": tabla_detalle["departamento"],
+        "Oficina": tabla_detalle["oficina"],
+        "Monto": tabla_detalle["monto"].map(fmt),
+    })
+    st.dataframe(tabla_detalle, use_container_width=True, hide_index=True, height=480)
